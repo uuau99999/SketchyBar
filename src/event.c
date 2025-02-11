@@ -65,6 +65,10 @@ static void event_animator_refresh(void* context) {
   bar_manager_animator_refresh(&g_bar_manager, (uint64_t)context);
 }
 
+static void event_rotator_refresh(void* context) {
+  bar_manager_rotator_refresh(&g_bar_manager, (uint64_t)context);
+}
+
 static void event_mach_message(void* context) {
   handle_message_mach(context);
 }
@@ -368,6 +372,7 @@ static callback_type* event_handler[] = {
   [SYSTEM_WILL_SLEEP]          = event_system_will_sleep,
   [SHELL_REFRESH]              = event_shell_refresh,
   [ANIMATOR_REFRESH]           = event_animator_refresh,
+  [ROTATOR_REFRESH]            = event_rotator_refresh,
   [MACH_MESSAGE]               = event_mach_message,
   [HOTLOAD]                    = event_hotload,
   [SPACE_WINDOWS_CHANGED]      = event_space_windows_changed,
@@ -390,7 +395,7 @@ void event_post(struct event *event) {
     error("Trying to reinitialize the event mutex! abort..\n");
   } else if (!initialized) error("The event mutex is not ready! abort..\n");
 
-  if (event->type == ANIMATOR_REFRESH) {
+  if (event->type == ANIMATOR_REFRESH || event->type == ROTATOR_REFRESH) {
     // We try to lock the mutex up to 1ms and then concede (skip the frame) to
     // avoid deadlocking occuring due to the CVDisplayLink.
     int locked;

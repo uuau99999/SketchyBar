@@ -536,6 +536,10 @@ void bar_manager_animator_refresh(struct bar_manager* bar_manager, uint64_t time
   }
   bar_manager_unfreeze(bar_manager);
 }
+void bar_manager_rotator_refresh(struct bar_manager* bar_manager, uint64_t time) {
+  if (bar_manager->bar_needs_resize) bar_manager_resize(bar_manager);
+  bar_manager_refresh(bar_manager, true, true);
+}
 
 void bar_manager_update(struct bar_manager* bar_manager, bool forced) {
   if ((bar_manager->frozen && !forced) || bar_manager->sleeps) return;

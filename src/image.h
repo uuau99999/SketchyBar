@@ -1,8 +1,22 @@
 #pragma once
 #include "shadow.h"
 #include "misc/defines.h"
+#include <CoreVideo/CoreVideo.h>
 
 extern CGImageRef workspace_icon_for_app(char* app);
+
+// Structure to encapsulate the state of the image rotator
+struct ImageRotator {
+    CGImageRef originalImage;     // Original image
+    CGFloat currentRotation;      // Current rotation (degrees)
+    CGFloat degreesPerSecond;     // Rotation speed (degrees/second)
+    CGFloat fixedSize;          // Fixed width
+    CGContextRef bitmapContext;   // Bitmap context
+    CVDisplayLinkRef displayLink; // Display link
+    pthread_mutex_t mutex;        // Mutex
+    void (*frameCallback)(CGImageRef); // Frame callback function
+};
+typedef struct ImageRotator ImageRotator;
 
 struct image {
   bool enabled;
@@ -26,6 +40,8 @@ struct image {
   int padding_right;
   int y_offset;
 
+  float rotate_degrees_per_second;
+  ImageRotator* rotator;
   struct image* link;
 };
 
@@ -35,6 +51,8 @@ void image_copy(struct image* image, CGImageRef source);
 bool image_set_image(struct image* image, CGImageRef new_image_ref, CGRect bounds, bool forced);
 bool image_load(struct image* image, char* path, FILE* rsp);
 bool image_set_scale(struct image* image, float scale);
+void image_set_rotate_degrees_per_second(struct image* image, float radians);
+void image_set_rotate_degrees(struct image* image, float radians);
 
 CGSize image_get_size(struct image* image);
 void image_calculate_bounds(struct image* image, uint32_t x, uint32_t y);
@@ -44,3 +62,9 @@ void image_destroy(struct image* image);
 
 void image_serialize(struct image* image, char* indent, FILE* rsp);
 bool image_parse_sub_domain(struct image* image, FILE* rsp, struct token property, char* message);
+
+ImageRotator* image_rotator_create(struct image* image);
+CGImageRef create_rotated_image(ImageRotator* rotator);
+void image_rotator_start(struct image* image, bool forceFlush);
+void image_rotator_stop(struct image* image);
+void image_rotator_release(struct image* image);
