@@ -475,11 +475,18 @@ void image_set_rotate_rate(struct image* image, float radians) {
 }
 
 void image_set_rotate_degrees(struct image* image, float radians) {
-  if (!image->rotator) {
+  if (radians != 0.f && !image->rotator) {
+    image->rotator = image_rotator_create(image);
+    if (image->image_ref) {
+      if (image->rotator->original_image) CGImageRelease(image->rotator->original_image);
+      image->rotator->original_image = CGImageRetain(image->image_ref);
+    }
+  } else if (!image->rotator) {
     return;
   }
   pthread_mutex_lock(&image->rotator->mutex);
   image->rotator->current_rotation = fmod(radians, 360.0);
+  image_rotator_start(image, true);
   pthread_mutex_unlock(&image->rotator->mutex);
 }
 
@@ -650,7 +657,8 @@ void image_rotator_start(struct image* image, bool forceFlush) {
     draw_rotated_image(image);
   }
 
-  if (!rotator->display_link) {
+  // only start display link if rotate rate is not zero
+  if (rotator->rotate_rate != 0.f && !rotator->display_link) {
     CVDisplayLinkCreateWithActiveCGDisplays(&rotator->display_link);
     CVDisplayLinkSetOutputCallback(
       rotator->display_link,
