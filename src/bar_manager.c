@@ -538,7 +538,7 @@ void bar_manager_animator_refresh(struct bar_manager* bar_manager, uint64_t time
 }
 void bar_manager_rotator_refresh(struct bar_manager* bar_manager, uint64_t time) {
   if (bar_manager->bar_needs_resize) bar_manager_resize(bar_manager);
-  bar_manager_refresh(bar_manager, true, true);
+  bar_manager_refresh(bar_manager, true, false);
 }
 
 void bar_manager_update(struct bar_manager* bar_manager, bool forced) {

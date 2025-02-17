@@ -113,33 +113,23 @@ bool image_load(struct image* image, char* path, FILE* rsp) {
   }
 
   if (new_image_ref) {
+    image_set_image(image,
+                    new_image_ref,
+                    (CGRect){{0,0},
+                            {CGImageGetWidth(new_image_ref) / scale,
+                              CGImageGetHeight(new_image_ref) / scale }},
+                    true                                        );
     if (image->rotator) {
       pthread_mutex_lock(&image->rotator->mutex);
-      if (image->rotator->original_image) {
-        CGImageRelease(image->rotator->original_image);
-      }
-      // retain original image
-      image->rotator->original_image = CGImageRetain(new_image_ref);
       if (image->rotate_rate != 0.f) {
         image_rotator_start(image, true);
       } else {
         image_rotator_stop(image);
       }
       pthread_mutex_unlock(&image->rotator->mutex);
-    } else {
-      if (image->rotate_rate != 0.f) {
-        image->rotator = image_rotator_create(image);
-        // retain original image
-        image->rotator->original_image = CGImageRetain(new_image_ref);
-        image_rotator_start(image, true);
-      } else {
-        image_set_image(image,
-                        new_image_ref,
-                        (CGRect){{0,0},
-                                {CGImageGetWidth(new_image_ref) / scale,
-                                  CGImageGetHeight(new_image_ref) / scale }},
-                        true                                        );
-      }
+    } else if (image->rotate_rate != 0.f) {
+      image->rotator = image_rotator_create(image);
+      image_rotator_start(image, true);
     }
   }
   else {
@@ -283,6 +273,10 @@ void image_draw(struct image* image, CGContextRef context) {
   if ((!image->link && !image->image_ref)
       || (image->link && !image->link->image_ref)) return;
 
+  if (image->rotator) {
+    CGContextClearRect(context, image->bounds);
+  }
+
   if (image->shadow.enabled) {
     CGContextSaveGState(context);
     CGRect sbounds = shadow_get_bounds(&image->shadow, image->bounds);
@@ -314,10 +308,20 @@ void image_draw(struct image* image, CGContextRef context) {
     CGContextClip(context);
     CFRelease(path);
   }
+  if (image->rotator) {
+    CGImageRef rotatedImage = create_rotated_image(image->rotator, image->link ? image->link->image_ref : image->image_ref);
+    CGContextSetInterpolationQuality(context, kCGInterpolationDefault); // high quality interpolation
+    CGContextDrawImage(context,
+                       image->bounds,
+                       rotatedImage);
+    CGImageRelease(rotatedImage);
 
-  CGContextDrawImage(context,
-                     image->bounds,
-                     image->link ? image->link->image_ref : image->image_ref);
+  } else {
+    CGContextDrawImage(context,
+                       image->bounds,
+                       image->link ? image->link->image_ref : image->image_ref);
+  }
+
 
   if (image->bounds.size.height > 2*image->corner_radius
       && image->bounds.size.width > 2*image->corner_radius) {
@@ -340,6 +344,7 @@ void image_draw(struct image* image, CGContextRef context) {
     CGContextDrawPath(context, kCGPathFillStroke);
     CFRelease(path);
   }
+
   CGContextRestoreGState(context);
 }
 
@@ -477,10 +482,6 @@ void image_set_rotate_rate(struct image* image, float radians) {
 void image_set_rotate_degrees(struct image* image, float radians) {
   if (radians != 0.f && !image->rotator) {
     image->rotator = image_rotator_create(image);
-    if (image->image_ref) {
-      if (image->rotator->original_image) CGImageRelease(image->rotator->original_image);
-      image->rotator->original_image = CGImageRetain(image->image_ref);
-    }
   } else if (!image->rotator) {
     return;
   }
@@ -490,7 +491,7 @@ void image_set_rotate_degrees(struct image* image, float radians) {
   pthread_mutex_unlock(&image->rotator->mutex);
 }
 
-CGContextRef create_bitmap_context(CGImageRef imageRef, CGFloat fixed_size) {
+CGContextRef create_roated_bitmap_context(CGImageRef imageRef, CGFloat fixed_size) {
     // use RGB color space with alpha channel
   CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   
@@ -517,59 +518,41 @@ CGContextRef create_bitmap_context(CGImageRef imageRef, CGFloat fixed_size) {
 }
 
 // create roated image
-CGImageRef create_roated_image(ImageRotator *rotator, CGFloat radians) {
+CGImageRef create_rotated_image(ImageRotator *rotator, CGImageRef imageRef) {
   // get original image size
-  CGImageRef imageRef = rotator->original_image;
-  size_t originalWidth = rotator->original_width;
-  size_t originalHeight = rotator->original_height;
+  // CGImageRef imageRef = rotator->original_image;
+  // CGImageRef imageRef = NULL;
+  size_t original_width = CGImageGetWidth(imageRef);
+  size_t original_height = CGImageGetHeight(imageRef);
+
+  double height_width_ratio = (double)original_height / original_width;
+  CGFloat rotate_context_size =  original_width * pow(1 + height_width_ratio * height_width_ratio, 0.5);
+
 
   // calculate rotated canvas size
-  CGRect imageRect = CGRectMake(0, 0, originalWidth, originalHeight);
+  CGRect image_rect = CGRectMake(0, 0, original_width, original_height);
 
-  CGContextRef context = rotator->bitmap_context;
-
-  CGContextClearRect(context, CGRectMake(0, 0, rotator->rotate_context_size, rotator->rotate_context_size));
-  CGContextSaveGState(context);
+  CGContextRef context = create_roated_bitmap_context(imageRef, rotate_context_size);
 
   // apply transformation (ensure rotation around center)
   CGContextTranslateCTM(context, 
-                        rotator->rotate_context_size/2.f, 
-                        rotator->rotate_context_size/2.f);
-  CGContextRotateCTM(context, radians);
+                        rotate_context_size/2.f, 
+                        rotate_context_size/2.f);
+  CGContextRotateCTM(context, rotator->current_rotation * M_PI / 180.0);
   CGContextTranslateCTM(context, 
-                        -1.0*originalWidth/2.f, 
-                        -1.0*originalHeight/2.f);
+                        -1.0*original_width/2.f, 
+                        -1.0*original_height/2.f);
   
   // draw image
-  CGContextDrawImage(context, imageRect, imageRef);
+  CGContextDrawImage(context, image_rect, imageRef);
   
   // get rotated image
-  CGImageRef rotatedImage = CGBitmapContextCreateImage(context);
-  CGContextRestoreGState(context);
-  
-  return rotatedImage;
+  CGImageRef rotated_image = CGBitmapContextCreateImage(context);
+  CGContextRelease(context);
+
+  return rotated_image;
 }
 
-
-bool draw_rotated_image(struct image* image) {
-  ImageRotator* rotator = image->rotator;
-  // generate rotated image
-  CGImageRef rotatedImage = create_roated_image(rotator, rotator->current_rotation * M_PI / 180.0);
-
-  // pass result through callback
-  if (rotator->frame_callback && rotatedImage) {
-    rotator->frame_callback(rotatedImage);
-    image_set_image(image,
-                rotatedImage,
-                (CGRect){{0,0},
-                          {CGImageGetWidth(rotatedImage),
-                          CGImageGetHeight(rotatedImage) }},
-                true                                        );
-
-    return true;
-  }
-  return false;
-}
 
 // CVDisplayLink for rotated image frames
 CVReturn rotate_image_display_link_callback(
@@ -594,10 +577,8 @@ CVReturn rotate_image_display_link_callback(
   rotator->current_rotation -= rotator->rotate_rate * deltaTime;
   rotator->current_rotation = fmod(rotator->current_rotation, 360.0);
 
-  if (draw_rotated_image(image)) {
-    struct event event = { (void*)outputTime->hostTime, ROTATOR_REFRESH };
-    event_post(&event);
-  }
+  struct event event = { (void*)outputTime->hostTime, ROTATOR_REFRESH };
+  event_post(&event);
 
   pthread_mutex_unlock(&rotator->mutex);
 
@@ -627,26 +608,12 @@ void image_rotator_stop(struct image* image) {
 // start rotator
 void image_rotator_start(struct image* image, bool forceFlush) {
   ImageRotator* rotator = image->rotator;
-  if (!rotator || !rotator->original_image) {
+  CGImageRef imageRef = image->link ? image->link->image_ref : image->image_ref;
+  if (!rotator || (!imageRef)) {
     return;
   }
-  CGImageRef imageRef = rotator->original_image;
   rotator->frame_callback = frame_callback;
 
-  // calculate maximum required size
-  size_t width = CGImageGetWidth(imageRef);
-  size_t height = CGImageGetHeight(imageRef);
-
-  rotator->original_width = width;
-  rotator->original_height = height;
-
-  double height2WidthRatio = (double)height / width;
-  rotator->rotate_context_size =  width * pow(1 + height2WidthRatio * height2WidthRatio, 0.5);
-
-  if (rotator->bitmap_context) {
-    CGContextRelease(rotator->bitmap_context);
-  }
-  rotator->bitmap_context = create_bitmap_context(imageRef, rotator->rotate_context_size);
 
   if (!rotator) {
     fprintf(stderr, "Error: Failed to create image rotator\n");
@@ -654,7 +621,9 @@ void image_rotator_start(struct image* image, bool forceFlush) {
   rotator->rotate_rate = image->rotate_rate;
 
   if (forceFlush) {
-    draw_rotated_image(image);
+    uint64_t time = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW_APPROX);
+    struct event event = { (void*)time, ROTATOR_REFRESH };
+    event_post(&event);
   }
 
   // only start display link if rotate rate is not zero
@@ -673,8 +642,6 @@ void image_rotator_start(struct image* image, bool forceFlush) {
 void image_rotator_release(struct image* image) {
     image_rotator_stop(image);
 
-    CGContextRelease(image->rotator->bitmap_context);
-    CGImageRelease(image->rotator->original_image);
     pthread_mutex_destroy(&(image->rotator->mutex));
     free(image->rotator);
     image->rotator = NULL;

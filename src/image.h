@@ -7,13 +7,8 @@ extern CGImageRef workspace_icon_for_app(char* app);
 
 // Structure to encapsulate the state of the image rotator
 struct ImageRotator {
-    CGImageRef original_image;     // Original image
-    size_t original_width;        // Original width
-    size_t original_height;       // Original height
     CGFloat current_rotation;      // Current rotation (degrees)
     CGFloat rotate_rate;     // Rotation speed (degrees/second)
-    CGFloat rotate_context_size;          // Fixed width
-    CGContextRef bitmap_context;   // Bitmap context
     CVDisplayLinkRef display_link; // Display link
     pthread_mutex_t mutex;        // Mutex
     void (*frame_callback)(CGImageRef); // Frame callback function
@@ -66,7 +61,7 @@ void image_serialize(struct image* image, char* indent, FILE* rsp);
 bool image_parse_sub_domain(struct image* image, FILE* rsp, struct token property, char* message);
 
 ImageRotator* image_rotator_create(struct image* image);
-CGImageRef create_rotated_image(ImageRotator* rotator);
+CGImageRef create_rotated_image(ImageRotator *rotator, CGImageRef imageRef);
 void image_rotator_start(struct image* image, bool forceFlush);
 void image_rotator_stop(struct image* image);
 void image_rotator_release(struct image* image);
