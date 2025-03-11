@@ -66,7 +66,7 @@ static void event_animator_refresh(void* context) {
 }
 
 static void event_rotator_refresh(void* context) {
-  bar_manager_rotator_refresh(&g_bar_manager, (uint64_t)context);
+  bar_manager_rotator_refresh(&g_bar_manager, (CVTimeStamp*)context);
 }
 
 static void event_mach_message(void* context) {

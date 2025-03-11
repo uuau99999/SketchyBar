@@ -23,6 +23,7 @@ void image_init(struct image* image) {
   image->padding_right = 0;
   image->link = NULL;
   image->rotate_rate = 0;
+  image->rotate_degrees = 0;
   image->rotator = NULL;
 
   shadow_init(&image->shadow);
@@ -128,7 +129,7 @@ bool image_load(struct image* image, char* path, FILE* rsp) {
       }
       pthread_mutex_unlock(&image->rotator->mutex);
     } else if (image->rotate_rate != 0.f) {
-      image->rotator = image_rotator_create(image);
+      image->rotator = rotator_create(image, image->rotate_degrees, image->rotator->rotate_rate, rotate_update_callback);
       image_rotator_start(image, true);
     }
   }
@@ -459,29 +460,27 @@ bool image_parse_sub_domain(struct image* image, FILE* rsp, struct token propert
   return needs_refresh;
 }
 
-void frame_callback(CGImageRef new_image_ref) {}
-
 void image_set_rotate_rate(struct image* image, float radians) {
   if (image->rotate_rate == radians) return;
   image->rotate_rate = radians;
 
   if (radians != 0.f) {
-    if (image->rotator) {
-      pthread_mutex_lock(&image->rotator->mutex);
-      image_rotator_start(image, true);
-      pthread_mutex_unlock(&image->rotator->mutex);
-    } else {
-      image->rotator = image_rotator_create(image);
-      image_rotator_start(image, false);
-    }
+    if (!image->rotator) {
+      image->rotator = rotator_create(image, image->rotate_degrees, image->rotate_rate, rotate_update_callback);
+    } 
+    image->rotator->rotate_rate = radians;
+    image_rotator_start(image, false);
   } else if (image->rotator) {
+    image->rotator->rotate_rate = radians;
     image_rotator_stop(image);
   }
 }
 
 void image_set_rotate_degrees(struct image* image, float radians) {
+  if (image->rotate_degrees == radians) return;
+  image->rotate_degrees = radians;
   if (radians != 0.f && !image->rotator) {
-    image->rotator = image_rotator_create(image);
+    image->rotator = rotator_create(image, image->rotate_degrees, image->rotate_rate, rotate_update_callback);
   } else if (!image->rotator) {
     return;
   }
@@ -518,10 +517,8 @@ CGContextRef create_roated_bitmap_context(CGImageRef imageRef, CGFloat fixed_siz
 }
 
 // create roated image
-CGImageRef create_rotated_image(ImageRotator *rotator, CGImageRef imageRef) {
+CGImageRef create_rotated_image(struct rotator* rotator, CGImageRef imageRef) {
   // get original image size
-  // CGImageRef imageRef = rotator->original_image;
-  // CGImageRef imageRef = NULL;
   size_t original_width = CGImageGetWidth(imageRef);
   size_t original_height = CGImageGetHeight(imageRef);
 
@@ -555,95 +552,50 @@ CGImageRef create_rotated_image(ImageRotator *rotator, CGImageRef imageRef) {
 
 
 // CVDisplayLink for rotated image frames
-CVReturn rotate_image_display_link_callback(
-    CVDisplayLinkRef displayLink,
-    const CVTimeStamp* now,
-    const CVTimeStamp* outputTime,
-    CVOptionFlags flagsIn,
-    CVOptionFlags* flagsOut,
-    void* userInfo
+bool rotate_update_callback(
+    void* userInfo,
+    CVTimeStamp* output_time
 ) {
-  struct image* image = (struct image*)userInfo;
-
-  ImageRotator* rotator = image->rotator;
+  struct rotator* rotator = (struct rotator*)userInfo;
 
   // calculate time difference (seconds)
-  double deltaTime = 1.0 / (outputTime->rateScalar * (double)outputTime->videoTimeScale / (double)outputTime->videoRefreshPeriod);
+  double deltaTime = 1.0 / (output_time->rateScalar * (double)output_time->videoTimeScale / (double)output_time->videoRefreshPeriod);
 
   // avoid deadlocking occuring due to the CVDisplayLink
-  if (pthread_mutex_trylock(&rotator->mutex)) {
-    return kCVReturnSuccess;
+  int locked;
+  if ((locked = pthread_mutex_trylock(&rotator->mutex)) != 0) {
+    return true;
   };
   rotator->current_rotation -= rotator->rotate_rate * deltaTime;
   rotator->current_rotation = fmod(rotator->current_rotation, 360.0);
-
-  struct event event = { (void*)outputTime->hostTime, ROTATOR_REFRESH };
-  event_post(&event);
+  printf("current_rotation: %f\n", rotator->current_rotation);
 
   pthread_mutex_unlock(&rotator->mutex);
 
-  return kCVReturnSuccess;
-}
-
-
-
-// initialize rotator
-ImageRotator* image_rotator_create(struct image* image) {
-  ImageRotator* rotator = malloc(sizeof(ImageRotator));
-  memset(rotator, 0, sizeof(ImageRotator));
-
-  pthread_mutex_init(&rotator->mutex, NULL);
-
-  return rotator;
+  return true;
 }
 
 void image_rotator_stop(struct image* image) {
-  if (image->rotator->display_link) {
-    CVDisplayLinkStop(image->rotator->display_link);
-    CVDisplayLinkRelease(image->rotator->display_link);
-    image->rotator->display_link = NULL;
+  if (image->rotator) {
+    ROTATION_STOP(image->rotator);
   }
 }
 
 // start rotator
 void image_rotator_start(struct image* image, bool forceFlush) {
-  ImageRotator* rotator = image->rotator;
-  CGImageRef imageRef = image->link ? image->link->image_ref : image->image_ref;
-  if (!rotator || (!imageRef)) {
-    return;
-  }
-  rotator->frame_callback = frame_callback;
-
-
-  if (!rotator) {
-    fprintf(stderr, "Error: Failed to create image rotator\n");
-  }
-  rotator->rotate_rate = image->rotate_rate;
-
+  ROTATION_START(image->rotator);
   if (forceFlush) {
     uint64_t time = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW_APPROX);
     struct event event = { (void*)time, ROTATOR_REFRESH };
     event_post(&event);
   }
-
-  // only start display link if rotate rate is not zero
-  if (rotator->rotate_rate != 0.f && !rotator->display_link) {
-    CVDisplayLinkCreateWithActiveCGDisplays(&rotator->display_link);
-    CVDisplayLinkSetOutputCallback(
-      rotator->display_link,
-      rotate_image_display_link_callback,
-      image
-    );
-    CVDisplayLinkStart(rotator->display_link);
-  }
 }
 
 // stop rotator and release resources
 void image_rotator_release(struct image* image) {
-    image_rotator_stop(image);
-
-    pthread_mutex_destroy(&(image->rotator->mutex));
-    free(image->rotator);
+  if (image->rotator) {
+    ROTATION_DESTROY(image->rotator);
     image->rotator = NULL;
+  }
 }
 

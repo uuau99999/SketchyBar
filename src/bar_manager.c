@@ -61,6 +61,7 @@ void bar_manager_init(struct bar_manager* bar_manager) {
   custom_events_init(&bar_manager->custom_events);
 
   animator_init(&bar_manager->animator);
+  rotator_manager_init(&bar_manager->rotator_manager);
 
   int shell_refresh_frequency = 1;
 
@@ -536,9 +537,11 @@ void bar_manager_animator_refresh(struct bar_manager* bar_manager, uint64_t time
   }
   bar_manager_unfreeze(bar_manager);
 }
-void bar_manager_rotator_refresh(struct bar_manager* bar_manager, uint64_t time) {
+
+void bar_manager_rotator_refresh(struct bar_manager* bar_manager, CVTimeStamp* output_time) {
   if (bar_manager->bar_needs_resize) bar_manager_resize(bar_manager);
-  bar_manager_refresh(bar_manager, true, false);
+  rotator_manager_update(&bar_manager->rotator_manager, output_time);
+  bar_manager_refresh(bar_manager, false, true);
 }
 
 void bar_manager_update(struct bar_manager* bar_manager, bool forced) {
@@ -1085,6 +1088,7 @@ void bar_manager_destroy(struct bar_manager* bar_manager) {
   }
 
   animator_destroy(&bar_manager->animator);
+  rotator_manager_destroy(&bar_manager->rotator_manager);
 
   while (bar_manager->bar_item_count > 0) {
     bar_manager_remove_item(bar_manager, bar_manager->bar_items[0]);

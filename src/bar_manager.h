@@ -2,6 +2,7 @@
 #include "bar.h"
 #include "bar_item.h"
 #include "animation.h"
+#include "rotator.h"
 
 #define CLOCK_CALLBACK(name) void name(CFRunLoopTimerRef timer, void *context)
 typedef CLOCK_CALLBACK(clock_callback);
@@ -51,6 +52,7 @@ struct bar_manager {
   struct custom_events custom_events;
 
   struct animator animator;
+  struct rotator_manager rotator_manager;
   struct image current_artwork;
 };
 
@@ -64,7 +66,7 @@ void bar_manager_move_item(struct bar_manager* bar_manager, struct bar_item* ite
 void bar_manager_handle_notification(struct bar_manager* bar_manager, struct notification* notification);
 
 void bar_manager_animator_refresh(struct bar_manager* bar_manager, uint64_t time);
-void bar_manager_rotator_refresh(struct bar_manager* bar_manager, uint64_t time);
+void bar_manager_rotator_refresh(struct bar_manager* bar_manager, CVTimeStamp* output_time);
 void bar_manager_update(struct bar_manager* bar_manager, bool forced);
 void bar_manager_update_space_components(struct bar_manager* bar_manager, bool forced);
 bool bar_manager_set_margin(struct bar_manager* bar_manager, int margin);
