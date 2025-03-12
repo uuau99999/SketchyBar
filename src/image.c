@@ -121,13 +121,11 @@ bool image_load(struct image* image, char* path, FILE* rsp) {
                               CGImageGetHeight(new_image_ref) / scale }},
                     true                                        );
     if (image->rotator) {
-      pthread_mutex_lock(&image->rotator->mutex);
       if (image->rotate_rate != 0.f) {
         image_rotator_start(image, true);
       } else {
         image_rotator_stop(image);
       }
-      pthread_mutex_unlock(&image->rotator->mutex);
     } else if (image->rotate_rate != 0.f) {
       image->rotator = rotator_create(image, image->rotate_degrees, image->rotator->rotate_rate, rotate_update_callback);
       image_rotator_start(image, true);
