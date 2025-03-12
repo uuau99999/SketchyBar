@@ -566,7 +566,6 @@ bool rotate_update_callback(
   };
   rotator->current_rotation -= rotator->rotate_rate * deltaTime;
   rotator->current_rotation = fmod(rotator->current_rotation, 360.0);
-  printf("current_rotation: %f\n", rotator->current_rotation);
 
   pthread_mutex_unlock(&rotator->mutex);
 

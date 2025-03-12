@@ -154,7 +154,7 @@ bool rotator_update(struct rotator *rotator, CVTimeStamp* output_time) {
   if (!rotator->enabled) {
     needs_update = false;
   } else if (rotator->update_function) {
-    needs_update |= rotator->update_function(rotator->target, output_time);
+    needs_update |= rotator->update_function(rotator, output_time);
   }
   bool found_item = false;
   for (int i = 0; i < g_bar_manager.bar_item_count; i++) {
